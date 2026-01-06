@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -60,12 +60,10 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Data files (but keep Python modules)
-backend/app/data/raw/*.csv
-backend/app/data/raw/*.json
-backend/app/data/raw/*.xlsx
-backend/app/data/processed/*.csv
-backend/app/data/processed/*.json
-backend/app/data/processed/*.xlsx
+# Temporarily allowing access for verification
+# backend/app/data/raw/*.csv
+# backend/app/data/processed/*.csv
+
 data/*.csv
 data/*.json
 data/*.xlsx

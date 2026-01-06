@@ -1,393 +1,286 @@
 """
-Data preprocessing and attribute calculation
-Cleans raw data and computes node/edge attributes for graph construction
+Complete Data Pipeline: Bulk Filter -> Clean -> Preprocess
+Handles the entire lifecycle from large FAOSTAT bulk files to processed graph data.
 """
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, Tuple, Optional
-from app.config import settings
-from app.utils.logger import setup_logger
+from typing import Dict, List, Tuple, Optional
+import os
 
-logger = setup_logger(__name__)
+# Define relative paths from this file
+DATA_DIR = Path(__file__).parent
+RAW_DATA_DIR = DATA_DIR / "raw"
+BULK_DATA_DIR = RAW_DATA_DIR / "bulk"
+PROCESSED_DATA_DIR = DATA_DIR / "processed"
 
+# Ensure directories exist
+RAW_DATA_DIR.mkdir(exist_ok=True)
+PROCESSED_DATA_DIR.mkdir(exist_ok=True)
 
 class DataPreprocessor:
-    """Preprocessor for cleaning and transforming raw food trade data"""
+    """The complete pipeline for Global Food Trade Data"""
     
-    # Country name to ISO3 code mapping
-    COUNTRY_MAPPING = {
-        'India': 'IND',
-        'United States of America': 'USA',
-        'Brazil': 'BRA',
-        'Egypt': 'EGY',
-        'China': 'CHN',
-        'United States': 'USA',
-        'China, mainland': 'CHN'
+    # FAOSTAT FCL (FAO Commodity List) codes for filtering
+    # CPC equivalents documented in comments
+    KEY_ITEMS = {
+        'Wheat': '15',              # FCL 15 (CPC 0111)
+        'Rice, paddy': '27',        # FCL 27 (CPC 0112)
+        'Maize (corn)': '56',       # FCL 56 (CPC 0114)
+        'Barley': '44',             # FCL 44 (CPC 0113)
+        'Soybeans': '236',          # FCL 236 (CPC 0116)
+        'Sunflower seed': '267',    # FCL 267 (CPC 0119)
+        'Potatoes': '116',          # FCL 116 (CPC 0131)
+        'Bananas': '486',           # FCL 486 (CPC 0134)
+        'Cattle': '866',            # FCL 866 (CPC 0211)
+        'Chickens': '1057',         # FCL 1057 (CPC 0213)
+        'Cereals, Total': '2905',
+        'Vegetables, Total': '2918',
     }
+
+    def __init__(self, years: List[int] = [2018, 2019, 2020, 2021]):
+        self.years = years
+
+    # ==========================================
+    # STAGE 1: BULK FILTERING
+    # ==========================================
     
-    # Country names for display
-    COUNTRY_NAMES = {
-        'IND': 'India',
-        'USA': 'United States',
-        'BRA': 'Brazil',
-        'EGY': 'Egypt',
-        'CHN': 'China'
-    }
-    
-    def __init__(self):
-        self.raw_data_dir = settings.RAW_DATA_DIR
-        self.processed_data_dir = settings.PROCESSED_DATA_DIR
-        self.countries = settings.MVP_COUNTRIES
-        self.years = settings.MVP_YEARS
-    
-    def load_raw_data(self) -> Dict[str, pd.DataFrame]:
-        """Load all raw data files"""
-        logger.info("Loading raw data files...")
+    def run_bulk_filter(self):
+        """Processes massive .csv files from bulk/ and saves filtered versions to raw/"""
+        print("\n📥 Stage 1: Initial Bulk Filtering...")
         
-        data = {}
-        files = {
-            'production': 'production.csv',
-            'trade': 'trade.csv',
-            'food_supply': 'food_supply.csv',
-            'bilateral_trade': 'bilateral_trade.csv'
+        # Define files and their corresponding specific filter logic
+        file_configs = [
+            {
+                'bulk_name': "Production_Crops_Livestock_E_All_Data_(Normalized).csv",
+                'out_name': "faostat_production.csv",
+                'elements': ['Production']
+            },
+            {
+                'bulk_name': "Trade_CropsLivestock_E_All_Data_(Normalized).csv",
+                'out_name': "faostat_trade.csv",
+                'elements': ['Import quantity', 'Export quantity', 'Import Value', 'Export Value']
+            },
+            {
+                'bulk_name': "FoodBalanceSheets_E_All_Data_(Normalized).csv",
+                'out_name': "faostat_food_balance.csv",
+                'elements': ['Food supply (kcal/capita/day)']
+            },
+            {
+                'bulk_name': "Trade_DetailedTradeMatrix_E_All_Data_(Normalized).csv",
+                'out_name': "faostat_bilateral_trade.csv",
+                'elements': None  # Matrix usually contains value/quantity by default
+            }
+        ]
+
+        for config in file_configs:
+            bulk_path = BULK_DATA_DIR / config['bulk_name']
+            out_path = RAW_DATA_DIR / config['out_name']
+            
+            if not bulk_path.exists():
+                print(f"   ℹ️ Skipping {config['bulk_name']} (Not found in bulk/)")
+                continue
+
+            print(f"   Filtering {config['bulk_name']} → {config['out_name']}...")
+            
+            chunks = []
+            # Large files require chunked reading
+            for chunk in pd.read_csv(bulk_path, chunksize=100000, encoding='latin-1', low_memory=False):
+                # Apply filters
+                # 1. Year Filter
+                mask = chunk['Year'].isin(self.years)
+                
+                # 2. Item Filter (if applicable)
+                if 'Item Code' in chunk.columns:
+                    mask &= chunk['Item Code'].astype(str).isin(self.KEY_ITEMS.values())
+                
+                # 3. Element Filter
+                if config['elements']:
+                    mask &= chunk['Element'].isin(config['elements'])
+                
+                filtered_chunk = chunk[mask]
+                if not filtered_chunk.empty:
+                    chunks.append(filtered_chunk)
+            
+            if chunks:
+                combined = pd.concat(chunks)
+                combined.to_csv(out_path, index=False)
+                print(f"   ✅ Saved {len(combined):,} records to raw/")
+            else:
+                print(f"   ⚠️ No matching records found for {config['bulk_name']}")
+
+    # ==========================================
+    # STAGE 2: CLEANING & NORMALIZATION
+    # ==========================================
+
+    def load_and_clean(self) -> Dict[str, pd.DataFrame]:
+        """Loads filtered data from raw/ and cleans it"""
+        print("\n✨ Stage 2: Cleaning and Normalization...")
+        
+        raw_files = {
+            'production': 'faostat_production.csv',
+            'trade': 'faostat_trade.csv',
+            'food_balance': 'faostat_food_balance.csv',
+            'bilateral': 'faostat_bilateral_trade.csv'
         }
         
-        for key, filename in files.items():
-            filepath = self.raw_data_dir / filename
-            if filepath.exists():
-                data[key] = pd.read_csv(filepath)
-                logger.info(f"Loaded {key}: {len(data[key])} records")
-            else:
-                logger.warning(f"File not found: {filepath}")
+        data = {}
+        for key, filename in raw_files.items():
+            path = RAW_DATA_DIR / filename
+            if not path.exists():
                 data[key] = pd.DataFrame()
-        
-        return data
-    
-    def clean_data(self, df: pd.DataFrame, data_type: str) -> pd.DataFrame:
-        """
-        Clean and standardize data
-        
-        Args:
-            df: Raw DataFrame
-            data_type: Type of data (production, trade, etc.)
+                continue
+                
+            df = pd.read_csv(path, low_memory=False)
+            # Standardize columns to snake_case
+            df.columns = df.columns.str.lower().str.replace(' ', '_').str.replace('(', '').str.replace(')', '')
             
-        Returns:
-            Cleaned DataFrame
-        """
-        if df.empty:
-            return df
+            # Fill small numeric gaps
+            if 'value' in df.columns:
+                df['value'] = df['value'].fillna(0)
+                
+            data[key] = df
+            print(f"   Cleaned {key}: {len(df):,} records")
+            
+        return data
+
+    # ==========================================
+    # STAGE 3: NODE & EDGE PREPROCESSING
+    # ==========================================
+
+    def calculate_attributes(self, data: Dict[str, pd.DataFrame]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Calculates global node and edge attributes"""
+        print("\n🧠 Stage 3: Feature Engineering...")
         
-        logger.info(f"Cleaning {data_type} data...")
+        # --- NODE ATTRIBUTES ---
+        prod = data.get('production', pd.DataFrame())
+        fb = data.get('food_balance', pd.DataFrame())
+        tr = data.get('trade', pd.DataFrame())
         
-        # Standardize column names
-        df.columns = df.columns.str.lower().str.replace(' ', '_')
+        # Country name normalization mapping
+        NAME_MAP = {
+            'China, mainland': 'China',
+            'China, Taiwan Province of': 'Taiwan',
+            'China, Hong Kong SAR': 'Hong Kong',
+            'China, Macao SAR': 'Macao',
+            'Russian Federation': 'Russia',
+            'Viet Nam': 'Vietnam'
+        }
+
+        def normalize_name(name):
+            return NAME_MAP.get(name, name)
+
+        if not prod.empty: prod['area'] = prod['area'].apply(normalize_name)
+        if not fb.empty: fb['area'] = fb['area'].apply(normalize_name)
+        if not tr.empty: tr['area'] = tr['area'].apply(normalize_name)
         
-        # Normalize country codes
-        if 'area' in df.columns:
-            df['iso3'] = df['area'].map(self.COUNTRY_MAPPING)
-            df = df[df['iso3'].notna()]  # Keep only MVP countries
-        
-        # Handle missing values
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        df[numeric_cols] = df[numeric_cols].fillna(method='ffill').fillna(0)
-        
-        # Remove outliers (values > 3 std deviations)
-        for col in numeric_cols:
-            if col not in ['year', 'area_code']:
-                mean = df[col].mean()
-                std = df[col].std()
-                df[col] = df[col].clip(lower=mean - 3*std, upper=mean + 3*std)
-        
-        logger.info(f"Cleaned {data_type}: {len(df)} records remaining")
-        return df
-    
-    def calculate_node_attributes(
-        self,
-        production_df: pd.DataFrame,
-        trade_df: pd.DataFrame,
-        food_supply_df: pd.DataFrame
-    ) -> pd.DataFrame:
-        """
-        Calculate node attributes for each country-year
-        
-        Returns:
-            DataFrame with node attributes
-        """
-        logger.info("Calculating node attributes...")
+        # Use Area as the primary key
+        prod_areas = set(prod['area'].unique()) if not prod.empty else set()
+        fb_areas = set(fb['area'].unique()) if not fb.empty else set()
+        areas = sorted(list(prod_areas | fb_areas))
         
         nodes = []
-        
-        for country in self.countries:
+        for area in areas:
+            # Filter out obvious non-country aggregates
+            if any(x in area.lower() for x in ['total', 'world', 'africa', 'asia', 'europe', 'americas', 'oceania']):
+                if area not in ['India', 'China', 'Brazil', 'Egypt', 'Russia']:
+                    continue
+
             for year in self.years:
-                node = {
-                    'iso_code': country,
-                    'name': self.COUNTRY_NAMES.get(country, country),
-                    'year': year
-                }
+                node = {'area': area, 'year': year}
                 
-                # Production total (million tons)
-                prod_data = production_df[
-                    (production_df['iso3'] == country) & 
-                    (production_df['year'] == year)
-                ]
-                if not prod_data.empty:
-                    # Sum production across all items, convert to million tons
-                    node['production_total'] = prod_data['value'].sum() / 1_000_000
+                # Production
+                a_prod = prod[(prod['area'] == area) & (prod['year'] == year)]
+                node['production_total'] = a_prod['value'].sum() if not a_prod.empty else 0
+                
+                # Food Supply
+                a_fb = fb[(fb['area'] == area) & (fb['year'] == year)]
+                node['food_supply'] = a_fb['value'].mean() if not a_fb.empty else 2500
+                
+                # Trade Metrics
+                if not tr.empty:
+                    a_tr = tr[(tr['area'] == area) & (tr['year'] == year)]
+                    imp = a_tr[a_tr['element'].str.contains('Import', case=False, na=False)]['value'].sum()
+                    exp = a_tr[a_tr['element'].str.contains('Export', case=False, na=False)]['value'].sum()
+                    node['net_trade'] = exp - imp
+                    node['import_dependency'] = imp / (node['production_total'] + imp) if (node['production_total'] + imp) > 0 else 0
                 else:
-                    node['production_total'] = 0.0
-                
-                # Food supply per capita (kcal/day)
-                supply_data = food_supply_df[
-                    (food_supply_df['iso3'] == country) & 
-                    (food_supply_df['year'] == year)
-                ]
-                if not supply_data.empty:
-                    node['food_supply_per_capita'] = supply_data['value'].mean()
-                else:
-                    node['food_supply_per_capita'] = 2000.0  # Default
-                
-                # Import/Export volumes
-                imports = trade_df[
-                    (trade_df['iso3'] == country) & 
-                    (trade_df['year'] == year) &
-                    (trade_df['trade_type'] == 'import')
-                ]
-                exports = trade_df[
-                    (trade_df['iso3'] == country) & 
-                    (trade_df['year'] == year) &
-                    (trade_df['trade_type'] == 'export')
-                ]
-                
-                import_total = imports['value'].sum() / 1_000_000 if not imports.empty else 0.0
-                export_total = exports['value'].sum() / 1_000_000 if not exports.empty else 0.0
-                
-                # Import dependency ratio = imports / (production + imports)
-                total_supply = node['production_total'] + import_total
-                node['import_dependency_ratio'] = (
-                    import_total / total_supply if total_supply > 0 else 0.0
-                )
-                
-                # Export dependency ratio = exports / production
-                node['export_dependency_ratio'] = (
-                    export_total / node['production_total'] 
-                    if node['production_total'] > 0 else 0.0
-                )
-                
-                # Net trade balance (million tons)
-                node['net_trade_balance'] = export_total - import_total
-                
-                # Stock-to-use ratio (simplified estimate)
-                node['stock_to_use_ratio'] = 0.25  # Default estimate
-                
-                # Yield index (normalized, 0-1)
-                node['yield_index'] = min(node['production_total'] / 500, 1.0)
-                
-                # Climate stress index (placeholder - will be enhanced)
-                node['climate_stress_index'] = np.random.uniform(0.3, 0.7)
-                
-                # Policy restriction flag (0 or 1)
-                node['policy_restriction_flag'] = 0
-                
-                # Price volatility index (placeholder)
-                node['price_volatility_index'] = np.random.uniform(0.2, 0.5)
-                
-                # Node confidence weight (based on data completeness)
-                data_completeness = sum([
-                    1 if node['production_total'] > 0 else 0,
-                    1 if node['food_supply_per_capita'] > 0 else 0,
-                    1 if import_total > 0 or export_total > 0 else 0
-                ]) / 3
-                node['node_confidence_weight'] = data_completeness
+                    node['net_trade'] = 0
+                    node['import_dependency'] = 0
                 
                 nodes.append(node)
         
         nodes_df = pd.DataFrame(nodes)
-        logger.info(f"Calculated attributes for {len(nodes_df)} nodes")
-        
-        return nodes_df
-    
-    def calculate_edge_attributes(
-        self,
-        bilateral_trade_df: pd.DataFrame,
-        nodes_df: pd.DataFrame
-    ) -> pd.DataFrame:
-        """
-        Calculate edge attributes for trade relationships
-        
-        Returns:
-            DataFrame with edge attributes
-        """
-        logger.info("Calculating edge attributes...")
-        
-        edges = []
-        
-        # If no bilateral trade data, create synthetic edges based on aggregate trade
-        if bilateral_trade_df.empty:
-            logger.warning("No bilateral trade data, creating synthetic edges...")
-            edges = self._create_synthetic_edges(nodes_df)
+
+        # --- EDGE ATTRIBUTES ---
+        bi = data.get('bilateral', pd.DataFrame())
+        if bi.empty:
+            edges_df = pd.DataFrame()
         else:
-            # Process actual bilateral trade data
-            for _, row in bilateral_trade_df.iterrows():
-                edge = self._process_bilateral_trade_row(row, nodes_df)
-                if edge:
-                    edges.append(edge)
-        
-        edges_df = pd.DataFrame(edges)
-        
-        if not edges_df.empty:
-            # Calculate historical stability (variance over years)
-            edges_df['historical_stability'] = edges_df.groupby(
-                ['exporter', 'importer', 'commodity']
-            )['trade_quantity'].transform(lambda x: x.std() / x.mean() if x.mean() > 0 else 0)
+            # Normalize names and handle bilateral logic
+            bi['reporter_countries'] = bi['reporter_countries'].apply(normalize_name)
+            bi['partner_countries'] = bi['partner_countries'].apply(normalize_name)
+
+            # Separate Imports and Exports
+            # FAOSTAT: Reporter=Armenia, Partner=Costa Rica, Element=Import Quantity means Costa Rica -> Armenia
+            imports = bi[bi['element'].str.contains('Import quantity', case=False, na=False)].copy()
+            imports['exporter'] = imports['partner_countries']
+            imports['importer'] = imports['reporter_countries']
+
+            exports = bi[bi['element'].str.contains('Export quantity', case=False, na=False)].copy()
+            exports['exporter'] = exports['reporter_countries']
+            exports['importer'] = exports['partner_countries']
+
+            edges_df = pd.concat([imports, exports])
+            edges_df = edges_df.rename(columns={'item': 'commodity', 'value': 'trade_quantity'})
             
-            logger.info(f"Calculated attributes for {len(edges_df)} edges")
-        
-        return edges_df
-    
-    def _create_synthetic_edges(self, nodes_df: pd.DataFrame) -> list:
-        """Create synthetic trade edges based on node attributes"""
-        edges = []
-        
-        # Define major trade relationships based on real-world patterns
-        trade_patterns = [
-            ('USA', 'EGY', 'wheat', 6.2),
-            ('USA', 'CHN', 'soybeans', 12.5),
-            ('BRA', 'CHN', 'soybeans', 14.5),
-            ('BRA', 'EGY', 'maize', 3.1),
-            ('IND', 'EGY', 'rice', 2.1),
-            ('USA', 'IND', 'maize', 3.4),
-            ('CHN', 'IND', 'processed', 1.8),
-            ('USA', 'BRA', 'wheat', 1.2),
-            ('BRA', 'USA', 'sugar', 2.3),
-            ('IND', 'USA', 'rice', 1.5)
-        ]
-        
-        for year in self.years:
-            for exporter, importer, commodity, base_quantity in trade_patterns:
-                # Add some year-to-year variation
-                variation = np.random.uniform(0.9, 1.1)
-                quantity = base_quantity * variation
-                
-                # Get importer's total imports for trade share calculation
-                importer_node = nodes_df[
-                    (nodes_df['iso_code'] == importer) & 
-                    (nodes_df['year'] == year)
-                ]
-                
-                if not importer_node.empty:
-                    importer_production = importer_node.iloc[0]['production_total']
-                    importer_imports = importer_production * importer_node.iloc[0]['import_dependency_ratio']
-                    
-                    trade_share = quantity / importer_imports if importer_imports > 0 else 0.1
-                else:
-                    trade_share = 0.1
-                
-                edge = {
-                    'exporter': exporter,
-                    'importer': importer,
-                    'commodity': commodity,
-                    'year': year,
-                    'trade_quantity': quantity,
-                    'trade_share': min(trade_share, 1.0),
-                    'edge_confidence_weight': 0.85  # Synthetic data has lower confidence
-                }
-                
-                edges.append(edge)
-        
-        return edges
-    
-    def _process_bilateral_trade_row(
-        self,
-        row: pd.Series,
-        nodes_df: pd.DataFrame
-    ) -> Optional[Dict]:
-        """Process a single bilateral trade row"""
-        # Extract relevant fields from Comtrade data
-        # This will depend on the actual API response structure
-        try:
-            edge = {
-                'exporter': row.get('reporterISO', ''),
-                'importer': row.get('partnerISO', ''),
-                'commodity': row.get('cmdCode', 'cereals'),
-                'year': row.get('period', 2020),
-                'trade_quantity': row.get('primaryValue', 0) / 1_000_000,  # Convert to million tons
-                'trade_share': 0.1,  # Will be calculated later
-                'edge_confidence_weight': 0.95
-            }
+            # Select relevant columns and aggregate
+            # We group by source, target, year, commodity to handle cases where both reported the trade
+            edges_df = edges_df.groupby(['exporter', 'importer', 'year', 'commodity'])['trade_quantity'].mean().reset_index()
             
-            return edge if edge['exporter'] and edge['importer'] else None
-        except Exception as e:
-            logger.warning(f"Error processing bilateral trade row: {e}")
-            return None
-    
-    def save_processed_data(
-        self,
-        nodes_df: pd.DataFrame,
-        edges_df: pd.DataFrame
-    ):
-        """Save processed node and edge data by year"""
-        logger.info("Saving processed data...")
-        
-        for year in self.years:
-            # Save nodes for this year
-            nodes_year = nodes_df[nodes_df['year'] == year]
-            nodes_file = self.processed_data_dir / f"nodes_{year}.csv"
-            nodes_year.to_csv(nodes_file, index=False)
-            logger.info(f"Saved {len(nodes_year)} nodes to {nodes_file}")
-            
-            # Save edges for this year
-            if not edges_df.empty:
-                edges_year = edges_df[edges_df['year'] == year]
-                edges_file = self.processed_data_dir / f"edges_{year}.csv"
-                edges_year.to_csv(edges_file, index=False)
-                logger.info(f"Saved {len(edges_year)} edges to {edges_file}")
-    
-    def process_all(self) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Complete preprocessing pipeline
-        
-        Returns:
-            Tuple of (nodes_df, edges_df)
-        """
-        logger.info("Starting data preprocessing pipeline...")
-        
-        # Load raw data
-        raw_data = self.load_raw_data()
-        
-        # Clean data
-        production_clean = self.clean_data(raw_data['production'], 'production')
-        trade_clean = self.clean_data(raw_data['trade'], 'trade')
-        food_supply_clean = self.clean_data(raw_data['food_supply'], 'food_supply')
-        bilateral_clean = self.clean_data(raw_data['bilateral_trade'], 'bilateral_trade')
-        
-        # Calculate attributes
-        nodes_df = self.calculate_node_attributes(
-            production_clean,
-            trade_clean,
-            food_supply_clean
-        )
-        
-        edges_df = self.calculate_edge_attributes(
-            bilateral_clean,
-            nodes_df
-        )
-        
-        # Save processed data
-        self.save_processed_data(nodes_df, edges_df)
-        
-        logger.info("Preprocessing complete!")
-        
+            # Remove self-loops
+            edges_df = edges_df[edges_df['exporter'] != edges_df['importer']]
+
         return nodes_df, edges_df
 
+    # ==========================================
+    # STAGE 4: OUTPUT SAVING
+    # ==========================================
+
+    def save_final(self, nodes: pd.DataFrame, edges: pd.DataFrame):
+        """Saves final state to processed/ directory"""
+        print("\n💾 Stage 4: Writing Final Graph Data...")
+        
+        nodes.to_csv(PROCESSED_DATA_DIR / "nodes_all.csv", index=False)
+        if not edges.empty:
+            edges.to_csv(PROCESSED_DATA_DIR / "edges_all.csv", index=False)
+
+        for year in self.years:
+            yr_nodes = nodes[nodes['year'] == year]
+            yr_nodes.to_csv(PROCESSED_DATA_DIR / f"nodes_{year}.csv", index=False)
+            
+            if not edges.empty:
+                yr_edges = edges[edges['year'] == year]
+                yr_edges.to_csv(PROCESSED_DATA_DIR / f"edges_{year}.csv", index=False)
+                print(f"   ✅ Year {year}: {len(yr_nodes)} nodes, {len(yr_edges):,} edges")
+            else:
+                print(f"   ✅ Year {year}: {len(yr_nodes)} nodes")
+
+    def run_pipeline(self):
+        """The Master Execution Method"""
+        print("="*70)
+        print("TEMPORAL GRAPH FOOD TRADE - FULL END-TO-END PIPELINE")
+        print("="*70)
+        
+        self.run_bulk_filter()            # Bulk -> Raw
+        data = self.load_and_clean()       # Raw -> Cleaned Data Frames
+        nodes, edges = self.calculate_attributes(data) # Cleaned -> Features
+        self.save_final(nodes, edges)     # Features -> Processed Files
+        
+        print("\n" + "="*70)
+        print("PIPELINE COMPLETE - REAL DATA READY")
+        print("="*70 + "\n")
 
 if __name__ == "__main__":
-    # Test the preprocessor
-    preprocessor = DataPreprocessor()
-    nodes, edges = preprocessor.process_all()
-    
-    print("\n=== Preprocessing Summary ===")
-    print(f"Nodes: {len(nodes)}")
-    print(f"Edges: {len(edges)}")
-    print(f"\nNode attributes: {list(nodes.columns)}")
-    print(f"Edge attributes: {list(edges.columns)}")
+    prep = DataPreprocessor()
+    prep.run_pipeline()
