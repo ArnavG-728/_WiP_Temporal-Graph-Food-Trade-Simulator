@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Navbar from "@/components/Navbar";
-import { getCountries, getCountryHistory, getCountryPartners } from "@/lib/api";
+import { getAreas, getAreaHistory, getAreaPartners } from "@/lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, MapPin, Database, Award, Info, ChevronDown, ChevronRight, ArrowUpRight, ArrowDownRight, Users, Box, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, Cell } from 'recharts';
@@ -18,9 +18,9 @@ const METRICS = [
 const YEARS = [2018, 2019, 2020, 2021];
 
 export default function ExplorerPage() {
-    const [countries, setCountries] = useState<string[]>([]);
+    const [areas, setAreas] = useState<string[]>([]);
     const [search, setSearch] = useState("");
-    const [selectedCountry, setSelectedCountry] = useState<any>(null);
+    const [selectedArea, setSelectedArea] = useState<any>(null);
     const [selectedMetric, setSelectedMetric] = useState(METRICS[0]);
     const [selectedYear, setSelectedYear] = useState(2021);
     const [partners, setPartners] = useState<any[]>([]);
@@ -29,8 +29,8 @@ export default function ExplorerPage() {
 
     useEffect(() => {
         async function init() {
-            const list = await getCountries();
-            setCountries(list);
+            const list = await getAreas();
+            setAreas(list);
             if (list.length > 0) handleSelect(list[0]);
         }
         init();
@@ -40,20 +40,20 @@ export default function ExplorerPage() {
         setLoading(true);
         try {
             const [history, partnersData] = await Promise.all([
-                getCountryHistory(name),
-                getCountryPartners(name, selectedYear)
+                getAreaHistory(name),
+                getAreaPartners(name, selectedYear)
             ]);
 
             const latest = history.find((h: any) => h.year === selectedYear) || history[history.length - 1];
 
-            setSelectedCountry({
+            setSelectedArea({
                 name,
                 stats: latest,
                 history: history
             });
             setPartners(partnersData);
         } catch (error) {
-            console.error("Error fetching country data", error);
+            console.error("Error fetching area data", error);
         } finally {
             setLoading(false);
         }
@@ -61,16 +61,16 @@ export default function ExplorerPage() {
 
     // Refetch partners when year changes
     useEffect(() => {
-        if (selectedCountry) {
+        if (selectedArea) {
             async function refetch() {
                 setPartnersLoading(true);
-                const data = await getCountryPartners(selectedCountry.name, selectedYear);
+                const data = await getAreaPartners(selectedArea.name, selectedYear);
                 setPartners(data);
 
                 // Update stats card for the selected year
-                const yearData = selectedCountry.history.find((h: any) => h.year === selectedYear);
+                const yearData = selectedArea.history.find((h: any) => h.year === selectedYear);
                 if (yearData) {
-                    setSelectedCountry((prev: any) => ({ ...prev, stats: yearData }));
+                    setSelectedArea((prev: any) => ({ ...prev, stats: yearData }));
                 }
                 setPartnersLoading(false);
             }
@@ -78,7 +78,7 @@ export default function ExplorerPage() {
         }
     }, [selectedYear]);
 
-    const filteredCountries = countries.filter(c => c.toLowerCase().includes(search.toLowerCase()));
+    const filteredAreas = areas.filter(c => c.toLowerCase().includes(search.toLowerCase()));
 
     const formatValue = (val: number, unit: string) => {
         if (unit === '%') return `${(val * 100).toFixed(1)}%`;
@@ -106,18 +106,18 @@ export default function ExplorerPage() {
                     </div>
 
                     <div className="h-[700px] glass rounded-3xl border-white/5 overflow-y-auto p-4 space-y-2">
-                        {filteredCountries.map(country => (
+                        {filteredAreas.map(area => (
                             <button
-                                key={country}
-                                onClick={() => handleSelect(country)}
+                                key={area}
+                                onClick={() => handleSelect(area)}
                                 className={cn(
                                     "w-full text-left px-6 py-4 rounded-2xl transition-all font-medium text-sm border border-transparent",
-                                    selectedCountry?.name === country
+                                    selectedArea?.name === area
                                         ? "bg-emerald-500 text-black font-bold shadow-lg shadow-emerald-500/10"
                                         : "text-white/60 hover:bg-white/5 hover:border-white/5"
                                 )}
                             >
-                                {country}
+                                {area}
                             </button>
                         ))}
                     </div>
@@ -129,10 +129,10 @@ export default function ExplorerPage() {
                         <div className="h-[600px] flex items-center justify-center">
                             <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin" />
                         </div>
-                    ) : selectedCountry ? (
+                    ) : selectedArea ? (
                         <AnimatePresence mode="wait">
                             <motion.div
-                                key={selectedCountry.name}
+                                key={selectedArea.name}
                                 initial={{ opacity: 0, y: 30 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -30 }}
@@ -145,7 +145,7 @@ export default function ExplorerPage() {
                                             <TrendingUp className="w-4 h-4" />
                                             <span className="text-xs font-bold uppercase tracking-widest text-emerald-400/70">Temporal Digital Twin</span>
                                         </div>
-                                        <h1 className="text-6xl font-display font-black tracking-tight">{selectedCountry.name}</h1>
+                                        <h1 className="text-6xl font-display font-black tracking-tight">{selectedArea.name}</h1>
                                     </div>
 
                                     <div className="flex flex-col gap-2">
@@ -169,10 +169,10 @@ export default function ExplorerPage() {
 
                                 {/* Stats Overview Grid */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <MetricCard label="Production" value={selectedCountry.stats.production} unit="Tons" icon={Box} color="emerald" />
-                                    <MetricCard label="Energy Supply" value={selectedCountry.stats.food_supply} unit="kcal/cap/d" icon={ZapIcon} color="blue" />
-                                    <MetricCard label="Net Trade" value={selectedCountry.stats.net_trade} unit="Tons" icon={TrendingUp} color="orange" />
-                                    <MetricCard label="Dependency" value={selectedCountry.stats.import_dependency * 100} unit="%" icon={Award} color="red" />
+                                    <MetricCard label="Production" value={selectedArea.stats.production} unit="Tons" icon={Box} color="emerald" />
+                                    <MetricCard label="Energy Supply" value={selectedArea.stats.food_supply} unit="kcal/cap/d" icon={ZapIcon} color="blue" />
+                                    <MetricCard label="Net Trade" value={selectedArea.stats.net_trade} unit="Tons" icon={TrendingUp} color="orange" />
+                                    <MetricCard label="Dependency" value={selectedArea.stats.import_dependency * 100} unit="%" icon={Award} color="red" />
                                 </div>
 
                                 {/* Main Chart Section with Aspect Dropdown */}
@@ -197,7 +197,7 @@ export default function ExplorerPage() {
 
                                     <div className="h-[400px] w-full">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={selectedCountry.history}>
+                                            <AreaChart data={selectedArea.history}>
                                                 <defs>
                                                     <linearGradient id="metricGrad" x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor={selectedMetric.color} stopOpacity={0.4} />
@@ -274,7 +274,7 @@ export default function ExplorerPage() {
                                         </div>
 
                                         <div className="flex-1 space-y-6">
-                                            <ContextInfo label="Global Rank" value={`#${Math.floor(Math.random() * 40) + 1}`} sub="Among 210 nations" />
+                                            <ContextInfo label="Global Rank" value={`#${Math.floor(Math.random() * 40) + 1}`} sub="Among 210 areas" />
                                             <ContextInfo label="Regional Hub" value={Math.random() > 0.5 ? "Yes" : "No"} sub="Trade Centrality Index" />
                                             <ContextInfo label="Primary Flow" value={partners[0]?.primary_commodity || "General"} sub="Dominant Commodity" />
 

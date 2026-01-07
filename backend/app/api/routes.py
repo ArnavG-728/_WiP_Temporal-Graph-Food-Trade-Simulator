@@ -98,9 +98,9 @@ async def get_stats():
         with get_session() as session:
             record = session.run(query).single()
             if not record:
-                return {"country_count": 0, "total_production": 0, "avg_food_supply": 0, "latest_year": 0}
+                return {"area_count": 0, "total_production": 0, "avg_food_supply": 0, "latest_year": 0}
             return {
-                "country_count": record["country_count"],
+                "area_count": record["country_count"],
                 "total_production": record["total_production"],
                 "avg_food_supply": record["avg_food_supply"],
                 "latest_year": record["latest_year"]

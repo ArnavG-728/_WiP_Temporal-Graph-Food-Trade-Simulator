@@ -19,17 +19,17 @@ export const getGlobalStats = async () => {
     return response.data;
 };
 
-export const getCountries = async () => {
+export const getAreas = async () => {
     const response = await apiClient.get('/graph/countries');
     return response.data;
 };
 
-export const getCountryHistory = async (name: string) => {
+export const getAreaHistory = async (name: string) => {
     const response = await apiClient.get(`/graph/country/${name}/history`);
     return response.data;
 };
 
-export const getCountryPartners = async (name: string, year: number = 2021) => {
+export const getAreaPartners = async (name: string, year: number = 2021) => {
     const response = await apiClient.get(`/graph/country/${name}/partners?year=${year}`);
     return response.data;
 };

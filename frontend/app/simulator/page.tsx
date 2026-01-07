@@ -3,15 +3,15 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from "@/components/Navbar";
 import GraphVisualization from "@/components/GraphVisualization";
-import { getGraphSnapshot, getCountries } from "@/lib/api";
+import { getGraphSnapshot, getAreas } from "@/lib/api";
 import { motion } from "framer-motion";
 import { FlaskConical, Play, RefreshCcw, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function SimulatorPage() {
     const [graphData, setGraphData] = useState<{ nodes: any[], edges: any[] }>({ nodes: [], edges: [] });
-    const [countries, setCountries] = useState<string[]>([]);
-    const [selectedCountry, setSelectedCountry] = useState("India");
+    const [areas, setAreas] = useState<string[]>([]);
+    const [selectedArea, setSelectedArea] = useState("India");
 
     // Simulation params
     const [prodChange, setProdChange] = useState(0);
@@ -21,8 +21,8 @@ export default function SimulatorPage() {
 
     useEffect(() => {
         async function init() {
-            const countryList = await getCountries();
-            setCountries(countryList);
+            const areaList = await getAreas();
+            setAreas(areaList);
             const snapshot = await getGraphSnapshot(2021);
             setGraphData(snapshot);
         }
@@ -36,7 +36,7 @@ export default function SimulatorPage() {
             // In a real scenario, we'd call /simulation/run
             // For now, we manually "perturb" the state locally for visualization
             const updatedNodes = graphData.nodes.map((n: any) => {
-                if (n.id === selectedCountry) {
+                if (n.id === selectedArea) {
                     return { ...n, production: n.production * (1 + prodChange / 100), color: '#f59e0b' };
                 }
                 return n;
@@ -76,11 +76,11 @@ export default function SimulatorPage() {
                             <div className="space-y-4">
                                 <label className="text-xs font-bold uppercase tracking-widest text-white/40">Select Target Entity</label>
                                 <select
-                                    value={selectedCountry}
-                                    onChange={(e) => setSelectedCountry(e.target.value)}
+                                    value={selectedArea}
+                                    onChange={(e) => setSelectedArea(e.target.value)}
                                     className="w-full p-4 glass rounded-2xl border-white/5 bg-transparent text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 appearance-none"
                                 >
-                                    {countries.map(c => <option key={c} value={c} className="bg-zinc-900">{c}</option>)}
+                                    {areas.map(c => <option key={c} value={c} className="bg-zinc-900">{c}</option>)}
                                 </select>
                             </div>
 

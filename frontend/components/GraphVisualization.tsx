@@ -223,7 +223,7 @@ export default function GraphVisualization({ data, className }: GraphProps) {
                                 selectedElement.type === 'node' ? "bg-emerald-500" : "bg-blue-500"
                             )} />
                             <h3 className="text-sm font-bold uppercase tracking-wider text-white/60">
-                                {selectedElement.type === 'node' ? 'Country Node' : 'Trade Flow'}
+                                {selectedElement.type === 'node' ? 'Area Node' : 'Trade Flow'}
                             </h3>
                         </div>
                         <button
@@ -301,7 +301,7 @@ export default function GraphVisualization({ data, className }: GraphProps) {
             <div className="absolute bottom-6 right-6 flex flex-col gap-2 p-4 glass rounded-xl pointer-events-none">
                 <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                    <span className="text-xs text-white/70 font-medium">Countries (Size = Production)</span>
+                    <span className="text-xs text-white/70 font-medium">Areas (Size = Production)</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-blue-500" />

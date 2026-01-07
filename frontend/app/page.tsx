@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Navbar from "@/components/Navbar";
 import GraphVisualization from "@/components/GraphVisualization";
-import { getCountries, getGraphSnapshot, getGlobalStats } from "@/lib/api";
+import { getAreas, getGraphSnapshot, getGlobalStats } from "@/lib/api";
 import { motion } from "framer-motion";
 import { TrendingUp, Globe, Box, Users, Search, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -14,21 +14,21 @@ export default function OverviewPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(2021);
-  const [countries, setCountries] = useState<string[]>([]);
-  const [selectedCountries, setSelectedCountries] = useState<string[]>(['India']);
+  const [areas, setAreas] = useState<string[]>([]);
+  const [selectedAreas, setSelectedAreas] = useState<string[]>(['India']);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [graph, globalStats, countryList] = await Promise.all([
+        const [graph, globalStats, areaList] = await Promise.all([
           getGraphSnapshot(selectedYear),
           getGlobalStats(),
-          getCountries()
+          getAreas()
         ]);
         setFullGraphData(graph);
         setStats(globalStats);
-        setCountries(countryList);
+        setAreas(areaList);
       } catch (error) {
         console.error("Error fetching dynamic data, using demo data", error);
         // Fallback for demo if backend isn't running
@@ -49,11 +49,11 @@ export default function OverviewPage() {
         };
         setFullGraphData(demoGraph);
         setStats({
-          country_count: 210,
+          area_count: 210,
           total_production: 2845000,
           avg_food_supply: 2850,
         });
-        setCountries(['USA', 'China', 'India', 'Brazil', 'Egypt']);
+        setAreas(['USA', 'China', 'India', 'Brazil', 'Egypt']);
       } finally {
         setLoading(false);
       }
@@ -61,15 +61,15 @@ export default function OverviewPage() {
     fetchData();
   }, [selectedYear]);
 
-  // Filter graph data based on selected countries
+  // Filter graph data based on selected areas
   useEffect(() => {
-    if (selectedCountries.length === 0) {
+    if (selectedAreas.length === 0) {
       setGraphData({ nodes: [], edges: [] });
       return;
     }
 
     const filteredNodes = fullGraphData.nodes.filter(node =>
-      selectedCountries.includes(node.label) || selectedCountries.includes(node.id)
+      selectedAreas.includes(node.label) || selectedAreas.includes(node.id)
     );
 
     const selectedIds = new Set(filteredNodes.map(n => n.id));
@@ -78,17 +78,17 @@ export default function OverviewPage() {
     );
 
     setGraphData({ nodes: filteredNodes, edges: filteredEdges });
-  }, [selectedCountries, fullGraphData]);
+  }, [selectedAreas, fullGraphData]);
 
-  const toggleCountry = (country: string) => {
-    setSelectedCountries(prev =>
-      prev.includes(country)
-        ? prev.filter(c => c !== country)
-        : [...prev, country]
+  const toggleArea = (area: string) => {
+    setSelectedAreas(prev =>
+      prev.includes(area)
+        ? prev.filter(c => c !== area)
+        : [...prev, area]
     );
   };
 
-  const filteredCountries = countries.filter(c =>
+  const filteredAreas = areas.filter(c =>
     c.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -131,8 +131,8 @@ export default function OverviewPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard
               icon={Globe}
-              label="Total Countries"
-              value={stats?.country_count || "..."}
+              label="Total Areas"
+              value={stats?.area_count || "..."}
               color="emerald"
               delay={0.3}
             />
@@ -145,8 +145,8 @@ export default function OverviewPage() {
             />
             <StatCard
               icon={Users}
-              label="Selected Countries"
-              value={selectedCountries.length}
+              label="Selected Areas"
+              value={selectedAreas.length}
               color="purple"
               delay={0.5}
             />
@@ -181,14 +181,14 @@ export default function OverviewPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Country Selection Panel */}
+            {/* Area Selection Panel */}
             <div className="lg:col-span-1">
               <div className="glass rounded-3xl border-white/5 p-6 sticky top-32">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400">
                     <Filter className="w-5 h-5" />
                   </div>
-                  <h3 className="text-lg font-display font-bold">Filter Countries</h3>
+                  <h3 className="text-lg font-display font-bold">Filter Areas</h3>
                 </div>
 
                 {/* Search */}
@@ -196,7 +196,7 @@ export default function OverviewPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
                   <input
                     type="text"
-                    placeholder="Search countries..."
+                    placeholder="Search areas..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
@@ -206,40 +206,40 @@ export default function OverviewPage() {
                 {/* Quick Actions */}
                 <div className="flex gap-2 mb-4">
                   <button
-                    onClick={() => setSelectedCountries(countries)}
+                    onClick={() => setSelectedAreas(areas)}
                     className="flex-1 px-3 py-1.5 text-xs font-bold bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-lg transition-colors"
                   >
                     All
                   </button>
                   <button
-                    onClick={() => setSelectedCountries(countries.slice(0, 10))}
+                    onClick={() => setSelectedAreas(areas.slice(0, 10))}
                     className="flex-1 px-3 py-1.5 text-xs font-bold bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
                   >
                     Top 10
                   </button>
                   <button
-                    onClick={() => setSelectedCountries([])}
+                    onClick={() => setSelectedAreas([])}
                     className="flex-1 px-3 py-1.5 text-xs font-bold bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
                   >
                     Clear
                   </button>
                 </div>
 
-                {/* Country Checkboxes */}
+                {/* Area Checkboxes */}
                 <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                  {filteredCountries.map((country) => (
+                  {filteredAreas.map((area) => (
                     <label
-                      key={country}
+                      key={area}
                       className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors group"
                     >
                       <input
                         type="checkbox"
-                        checked={selectedCountries.includes(country)}
-                        onChange={() => toggleCountry(country)}
+                        checked={selectedAreas.includes(area)}
+                        onChange={() => toggleArea(area)}
                         className="w-4 h-4 rounded border-white/20 bg-white/5 text-emerald-500 focus:ring-2 focus:ring-emerald-500/50 cursor-pointer"
                       />
                       <span className="text-sm font-medium text-white/70 group-hover:text-white transition-colors">
-                        {country}
+                        {area}
                       </span>
                     </label>
                   ))}
@@ -247,7 +247,7 @@ export default function OverviewPage() {
 
                 <div className="mt-4 pt-4 border-t border-white/5">
                   <p className="text-xs text-white/40">
-                    {selectedCountries.length} of {countries.length} countries selected
+                    {selectedAreas.length} of {areas.length} areas selected
                   </p>
                 </div>
               </div>
@@ -266,8 +266,8 @@ export default function OverviewPage() {
                 <div className="w-full h-full glass rounded-3xl flex items-center justify-center">
                   <div className="text-center">
                     <Filter className="w-16 h-16 text-white/20 mx-auto mb-4" />
-                    <p className="text-xl font-bold text-white/40 mb-2">No Countries Selected</p>
-                    <p className="text-sm text-white/30">Select countries from the panel to visualize the trade network</p>
+                    <p className="text-xl font-bold text-white/40 mb-2">No Areas Selected</p>
+                    <p className="text-sm text-white/30">Select areas from the panel to visualize the trade network</p>
                   </div>
                 </div>
               )}
@@ -289,7 +289,7 @@ export default function OverviewPage() {
             />
             <FeatureCard
               title="Vulnerability Index"
-              desc="Real-time calculation of country-level food security risks."
+              desc="Real-time calculation of area-level food security risks."
             />
           </div>
         </div>

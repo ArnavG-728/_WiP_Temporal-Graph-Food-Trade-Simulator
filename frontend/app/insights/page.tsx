@@ -10,11 +10,11 @@ export default function InsightsPage() {
     const [activeTab, setActiveTab] = useState('vulnerability');
 
     const vulnerabilityData = [
-        { country: 'Egypt', score: 0.82, status: 'Critical', trend: '+4%' },
-        { country: 'China', score: 0.45, status: 'Moderate', trend: '-2%' },
-        { country: 'India', score: 0.38, status: 'Stable', trend: '+1%' },
-        { country: 'Brazil', score: 0.21, status: 'Safe', trend: '-5%' },
-        { country: 'USA', score: 0.18, status: 'Resilient', trend: '0%' },
+        { area: 'Egypt', score: 0.82, status: 'Critical', trend: '+4%' },
+        { area: 'China', score: 0.45, status: 'Moderate', trend: '-2%' },
+        { area: 'India', score: 0.38, status: 'Stable', trend: '+1%' },
+        { area: 'Brazil', score: 0.21, status: 'Safe', trend: '-5%' },
+        { area: 'USA', score: 0.18, status: 'Resilient', trend: '0%' },
     ];
 
     const criticalRoutes = [
@@ -64,7 +64,7 @@ export default function InsightsPage() {
                                 <table className="w-full text-left">
                                     <thead>
                                         <tr className="bg-white/5 border-b border-white/5">
-                                            <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-white/30">Country</th>
+                                            <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-white/30">Area</th>
                                             <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-white/30">Vulnerability Score</th>
                                             <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-white/30">Risk Status</th>
                                             <th className="px-8 py-6 text-xs font-black uppercase tracking-widest text-white/30">YoY Trend</th>
@@ -73,13 +73,13 @@ export default function InsightsPage() {
                                     <tbody>
                                         {vulnerabilityData.map((row, i) => (
                                             <motion.tr
-                                                key={row.country}
+                                                key={row.area}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: i * 0.1 }}
                                                 className="border-b last:border-none border-white/5 hover:bg-white/[0.02] transition-colors"
                                             >
-                                                <td className="px-8 py-6 font-display font-bold text-lg">{row.country}</td>
+                                                <td className="px-8 py-6 font-display font-bold text-lg">{row.area}</td>
                                                 <td className="px-8 py-6">
                                                     <div className="flex items-center gap-4">
                                                         <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden min-w-[100px]">
