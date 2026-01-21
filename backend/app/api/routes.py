@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
 from app.graph.neo4j_manager import Neo4jManager
+from app.simulation.engine import SimulationEngine
 from pydantic import BaseModel
 import logging
 
@@ -8,10 +9,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 neo4j = Neo4jManager()
+simulation = SimulationEngine()
 
 class AttributeUpdate(BaseModel):
     area: str
     year: int
+    commodity: str = "Total"
     production_change: float = 0
     import_change: float = 0
     climate_stress: float = 0
@@ -176,4 +179,20 @@ async def get_country_partners(name: str, year: int = 2021):
             return partners
     except Exception as e:
         logger.error(f"Error fetching country partners: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/simulation/run")
+async def run_simulation(update: AttributeUpdate):
+    try:
+        results = simulation.run_simulation(
+            area=update.area,
+            year=update.year,
+            commodity=update.commodity,
+            prod_change_pct=update.production_change,
+            import_change_pct=update.import_change,
+            climate_stress=update.climate_stress
+        )
+        return results
+    except Exception as e:
+        logger.error(f"Simulation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import CytoscapeComponent from 'react-cytoscapejs';
 import cytoscape from 'cytoscape';
 import { cn } from '@/lib/utils';
+import { isWebGLAvailable } from '@/lib/gpu-utils';
 
 // Neo4j-inspired stylesheet with better visual hierarchy
 const stylesheet: any[] = [
@@ -11,7 +12,7 @@ const stylesheet: any[] = [
         selector: 'node',
         style: {
             'label': 'data(label)',
-            'background-color': '#10b981',
+            'background-color': 'data(color)',
             'color': '#fff',
             'font-size': '14px',
             'font-weight': 'bold',
@@ -26,15 +27,16 @@ const stylesheet: any[] = [
             'overlay-padding': '8px',
             'z-index': 10,
             'text-wrap': 'wrap',
-            'text-max-width': '120px'
+            'text-max-width': '120px',
+            'min-zoomed-font-size': 8 // Performance: Don't render text when small
         }
     },
     {
         selector: 'edge',
         style: {
             'width': 'mapData(quantity, 0, 1000000, 2, 12)',
-            'line-color': '#3b82f6',
-            'target-arrow-color': '#3b82f6',
+            'line-color': 'data(color)',
+            'target-arrow-color': 'data(color)',
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             'opacity': 0.7,
@@ -77,8 +79,32 @@ interface GraphProps {
 export default function GraphVisualization({ data, className }: GraphProps) {
     const [elements, setElements] = useState<any[]>([]);
     const [selectedElement, setSelectedElement] = useState<any>(null);
+    const [layoutName, setLayoutName] = useState<string>('cose');
     const cyRef = useRef<cytoscape.Core | null>(null);
     const previousNodesRef = useRef<Set<string>>(new Set());
+
+    // Register fcose extension
+    useEffect(() => {
+        let mounted = true;
+        try {
+            if (typeof window !== 'undefined') {
+                import('cytoscape-fcose').then((fcose) => {
+                    if (mounted) {
+                        try {
+                            cytoscape.use(fcose.default);
+                            setLayoutName('fcose');
+                        } catch (e) {
+                            console.warn("Already registered or error", e);
+                            setLayoutName('fcose'); // Try setting it anyway if it's just a double-register warning
+                        }
+                    }
+                });
+            }
+        } catch (error) {
+            console.warn('Failed to register fcose extension:', error);
+        }
+        return () => { mounted = false; };
+    }, []);
 
     useEffect(() => {
         const nodes = data.nodes.map(n => ({
@@ -99,53 +125,74 @@ export default function GraphVisualization({ data, className }: GraphProps) {
         if (cyRef.current && newNodes.length > 0 && previousNodesRef.current.size > 0) {
             setTimeout(() => {
                 if (cyRef.current) {
-                    // Run layout only on new nodes to prevent overlap
+                    // Optimized layout run for incremental updates
                     const layout = cyRef.current.layout({
-                        name: 'cose',
+                        name: layoutName, // Use currently active layout
                         animate: true,
-                        animationDuration: 1000,
+                        animationDuration: 800,
                         animationEasing: 'ease-out',
-                        fit: true,
+                        fit: false, // Don't refit on incremental update
                         padding: 50,
                         randomize: false,
-                        nodeRepulsion: 8000000,
-                        idealEdgeLength: 150,
-                        edgeElasticity: 200,
-                        nestingFactor: 1.2,
-                        gravity: 1,
-                        numIter: 1000,
-                        initialTemp: 1000,
-                        coolingFactor: 0.99,
-                        minTemp: 1.0
-                    });
+                        nodeRepulsion: 4500,
+                        idealEdgeLength: 100,
+                        edgeElasticity: 0.45,
+                        nestingFactor: 0.1,
+                        gravity: 0.25,
+                        numIter: 2500,
+                        tile: true,
+                        tilingPaddingVertical: 10,
+                        tilingPaddingHorizontal: 10,
+                        gravityRangeCompound: 1.5,
+                        gravityCompound: 1.0,
+                        gravityRange: 3.8,
+                        initialEnergyOnIncremental: 0.3
+                    } as any);
                     layout.run();
                 }
             }, 100);
         }
 
         previousNodesRef.current = currentNodeIds;
-    }, [data]);
+    }, [data, layoutName]);
 
-    // Neo4j-like layout configuration with better physics
+    // Determine performance mode based on graph size
+    const isLargeGraph = elements.length > 500;
+    const isVeryLargeGraph = elements.length > 1500;
+
+    // Optimized Layout Configuration
     const layout = {
-        name: 'cose',
-        animate: true,
-        animationDuration: 1500,
+        name: layoutName,
+        quality: isVeryLargeGraph ? 'proof' : 'default',
+        randomize: true,
+        animate: !isVeryLargeGraph, // Disable animation for very large graphs
+        animationDuration: 1000,
         animationEasing: 'ease-out',
         fit: true,
         padding: 50,
-        randomize: true,
-        componentSpacing: 150,
-        nodeRepulsion: 8000000,
-        idealEdgeLength: 150,
-        edgeElasticity: 200,
-        nestingFactor: 1.2,
-        gravity: 1,
-        numIter: 1000,
-        initialTemp: 1000,
-        coolingFactor: 0.99,
-        minTemp: 1.0,
-        nodeOverlap: 40
+        nodeDimensionsIncludeLabels: true,
+        uniformNodeDimensions: false,
+        packComponents: true,
+        step: "all",
+
+        // Physics parameters (tuned for stability and speed)
+        samplingType: true,
+        sampleSize: 25,
+        nodeSeparation: 75,
+        piTol: 0.0000002,
+        nodeRepulsion: (node: any) => 4500,
+        idealEdgeLength: (edge: any) => 100,
+        edgeElasticity: (edge: any) => 0.45,
+        nestingFactor: 0.1,
+        gravity: 0.25,
+        numIter: 2500,
+        tile: true,
+        tilingPaddingVertical: 10,
+        tilingPaddingHorizontal: 10,
+        gravityRangeCompound: 1.5,
+        gravityCompound: 1.0,
+        gravityRange: 3.8,
+        initialEnergyOnIncremental: 0.3
     };
 
     const formatValue = (val: number) => {
@@ -161,6 +208,25 @@ export default function GraphVisualization({ data, className }: GraphProps) {
                 style={{ width: '100%', height: '100%' }}
                 stylesheet={stylesheet}
                 layout={layout}
+                // Optimized configuration
+                minZoom={0.2}
+                maxZoom={3}
+                wheelSensitivity={0.3}
+                pixelRatio={isVeryLargeGraph ? 1 : 'auto'} // Reduce pixel ratio for very large graphs
+                // @ts-ignore - renderer is a valid cytoscape option but might be missing from react-cytoscapejs types
+                renderer={isWebGLAvailable() ? {
+                    name: 'webgl',
+                    // Optimization flags for WebGL renderer if supported
+                    textureOnViewport: isLargeGraph,
+                    motionBlur: false
+                } : {
+                    name: 'canvas',
+                    // Optimization flags for Canvas renderer
+                    hideEdgesOnViewport: isLargeGraph,
+                    textureOnViewport: isLargeGraph,
+                    pixelRatio: isVeryLargeGraph ? 1 : 'auto',
+                    motionBlur: false
+                }}
                 cy={(cy) => {
                     cyRef.current = cy;
 
@@ -168,6 +234,14 @@ export default function GraphVisualization({ data, className }: GraphProps) {
                     cy.userPanningEnabled(true);
                     cy.userZoomingEnabled(true);
                     cy.boxSelectionEnabled(true);
+
+                    // Performance: Hide things while manipulating
+                    if (isLargeGraph) {
+                        // @ts-ignore
+                        cy.on('viewport', () => {
+                            // Optional: logic to simplify view during pan/zoom if really needed
+                        });
+                    }
 
                     // Node interaction handlers
                     cy.on('tap', 'node', (evt) => {
@@ -212,6 +286,19 @@ export default function GraphVisualization({ data, className }: GraphProps) {
                 }}
                 className="bg-black/40"
             />
+
+            {/* Renderer Info Indicator */}
+            <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-3">
+                <div className="px-3 py-1 rounded-full glass border border-white/10 text-[10px] font-mono text-white/50 pointer-events-none flex items-center gap-2">
+                    <div className={cn("w-1.5 h-1.5 rounded-full", isWebGLAvailable() ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-orange-500")} />
+                    {isWebGLAvailable() ? "GPU ACCELERATED" : "CPU RENDERER"}
+                </div>
+                {isLargeGraph && (
+                    <div className="px-3 py-1 rounded-full glass border border-white/10 text-[10px] font-mono text-yellow-500/80 pointer-events-none flex items-center gap-2">
+                        <span>⚡ HIGH PERF MODE</span>
+                    </div>
+                )}
+            </div>
 
             {/* Neo4j-style Information Panel */}
             {selectedElement && (

@@ -34,4 +34,16 @@ export const getAreaPartners = async (name: string, year: number = 2021) => {
     return response.data;
 };
 
+export const runSimulation = async (params: {
+    area: string;
+    year: number;
+    commodity: string;
+    production_change: number;
+    import_change: number;
+    climate_stress: number;
+}) => {
+    const response = await apiClient.post('/simulation/run', params);
+    return response.data;
+};
+
 export default apiClient;
